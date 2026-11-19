@@ -1,0 +1,58 @@
+import { itemCell, itemLabel } from './itemView.js';
+import { relicIcon } from './relicIcons.js';
+import { t as tx, tr } from '../i18n/index.js';
+
+// Small stacked notices under the top HUD when an item is picked up.
+export class LootToast {
+  constructor(root, cfg, look) {
+    this.cfg = cfg; // config.items
+    this.look = look; // config.look.items
+    this.el = document.createElement('div');
+    this.el.className = 'loot-toasts';
+    root.appendChild(this.el);
+  }
+
+  show(item) {
+    const t = document.createElement('div');
+    t.className = `loot-toast g-${item.grade}`;
+    t.innerHTML = `${itemCell(item, this.cfg, this.look, { size: 14 })}<span style="color:${this.look.grades[item.grade].color}">${itemLabel(item, this.cfg, this.look)}</span>`;
+    this.el.prepend(t);
+    while (this.el.children.length > 3) this.el.lastChild.remove();
+    setTimeout(() => t.classList.add('out'), 1800);
+    setTimeout(() => t.remove(), 2200);
+  }
+
+  // cfg: config.look.medals (tier colours)
+  // a medal earned: tier-coloured badge, and a note when this hero is the first of his line to earn it
+  medal(m, cfg, first) {
+    const t = document.createElement('div'), c = cfg.tiers[m.tier].color;
+    t.className = 'loot-toast medal';
+    t.style.setProperty('--mc', c);
+    t.innerHTML = `<span class="hl-badge" style="--mc:${c};width:18px;height:18px">${relicIcon(m.icon, 11)}</span><span style="color:${c}">${tx('toast.medal', { name: tr(m.name) })}</span>${first ? `<small>${tx('toast.familyFirst')}</small>` : ''}`;
+    this.el.prepend(t);
+    while (this.el.children.length > 3) this.el.lastChild.remove();
+    setTimeout(() => t.classList.add('out'), 2600);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // a family trophy reached
+  trophy(tr0, cfg) {
+    const t = document.createElement('div'), c = cfg.tiers[tr0.tier].color;
+    t.className = 'loot-toast medal trophy';
+    t.style.setProperty('--mc', c);
+    t.innerHTML = `<span class="hl-cup" style="--mc:${c}">${relicIcon('trophy', 14)}</span><span style="color:${c}">${tx('toast.trophy', { name: tr(tr0.name) })}</span>`;
+    this.el.prepend(t);
+    while (this.el.children.length > 3) this.el.lastChild.remove();
+    setTimeout(() => t.classList.add('out'), 3000);
+    setTimeout(() => t.remove(), 3400);
+  }
+
+  text(msg) {
+    const t = document.createElement('div');
+    t.className = 'loot-toast warn';
+    t.textContent = msg;
+    this.el.prepend(t);
+    setTimeout(() => t.classList.add('out'), 1800);
+    setTimeout(() => t.remove(), 2200);
+  }
+}

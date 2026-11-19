@@ -1,0 +1,89 @@
+import { relicIcon } from './relicIcons.js';
+import { t, tr, trPerson, floorText } from '../i18n/index.js';
+import { hpBarHtml, paintHpBar } from './hpBarView.js';
+
+// Top HUD: HP bar, floor (or practice), gold, owned treasures, kills, enemies left, pause button.
+export class HUD {
+  constructor(root, { onPause }) {
+    this.el = document.createElement('div');
+    this.el.className = 'hud';
+    this.el.innerHTML = `
+      <div class="hud-left">
+        ${hpBarHtml()}
+        <div class="xp-row"><span class="lv">Lv 1</span><div class="xp"><div class="xp-fill"></div></div><span class="who"></span></div>
+        <div class="meta"><span class="floor">${t('hud.practice')}</span><span class="gold-wrap"><span class="gold-icon">◆</span> <span class="gold">0</span></span><span class="pocket-wrap">${relicIcon('bag', 13)} <span class="pocket">0</span></span></div>
+        <div class="relics"></div>
+      </div>
+      <div class="hud-center"><span class="kills-label" data-i18n="hud.kills">${t('hud.kills')}</span> <span class="kills">0</span><span class="left-wrap"> · <span data-i18n="hud.left">${t('hud.left')}</span> <span class="left">0</span></span></div>
+      <button class="pause interactive" aria-label="${t('pause.title')}" data-i18n-aria="pause.title">❚❚</button>`;
+    root.appendChild(this.el);
+    this.killsEl = this.el.querySelector('.kills');
+    this.floorEl = this.el.querySelector('.floor');
+    this.goldEl = this.el.querySelector('.gold');
+    this.goldWrap = this.el.querySelector('.gold-wrap');
+    this.leftEl = this.el.querySelector('.left');
+    this.leftWrap = this.el.querySelector('.left-wrap');
+    this.pauseBtn = this.el.querySelector('.pause');
+    this.relicsEl = this.el.querySelector('.relics');
+    this.pocketEl = this.el.querySelector('.pocket');
+    this.pocketWrap = this.el.querySelector('.pocket-wrap');
+    this.pauseBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); onPause(); });
+    this.last = {};
+  }
+
+  rect() {
+    const r = this.pauseBtn.getBoundingClientRect();
+    return { x: r.left - 8, y: r.top - 8, w: r.width + 16, h: r.height + 16 };
+  }
+
+  // write only when the value changed (DOM writes are not free on phones)
+  set(key, el, value) {
+    if (this.last[key] === value) return;
+    this.last[key] = value;
+    el.textContent = value;
+  }
+
+  toggle(key, el, hidden) {
+    if (this.last[key] === hidden) return;
+    this.last[key] = hidden;
+    el.classList.toggle('hidden', hidden);
+  }
+
+  // the language changed: every cached text is written again on the next update
+  relabel() { this.last = {}; }
+
+  // fx: the Fx beside the game (hp trail)
+  update(game, fx) {
+    this.set('kills', this.killsEl, String(game.stats.kills));
+    const d = game.dungeon, run = game.mode === 'dungeon';
+    this.set('floor', this.floorEl, !run ? t('hud.practice') : d.roomKind === 'treasure' ? t('hud.treasure', { floor: floorText(d.floor) }) : floorText(d.floor));
+    this.set('gold', this.goldEl, String(d.gold));
+    this.toggle('goldHidden', this.goldWrap, !run);
+    this.toggle('pocketHidden', this.pocketWrap, !run);
+    this.set('pocket', this.pocketEl, `${game.loot.pocket.length}/${game.config.items.pocketSize}`);
+    const fighting = run && !d.exit.open && d.roomKind !== 'treasure';
+    this.toggle('leftHidden', this.leftWrap, !fighting);
+    if (fighting) this.set('left', this.leftEl, d.waveCount > 1 ? t('hud.wave', { n: d.remaining, i: d.waveIndex, count: d.waveCount }) : String(d.remaining));
+    const v = game.vault, pr = v.progress;
+    this.set('lv', this.el.querySelector('.lv'), `Lv ${pr.level}`);
+    this.set('who', this.el.querySelector('.who'), v.lineage.given ? t('hud.who', { given: trPerson(v.lineage.given, 'given'), n: v.lineage.generation }) : '');
+    const need = Math.round(game.config.progress.need.base * Math.pow(pr.level, game.config.progress.need.exp));
+    const xpw = `${Math.min(100, (100 * pr.xp) / need).toFixed(1)}%`;
+    if (this.last.xpw !== xpw) { this.last.xpw = xpw; this.el.querySelector('.xp-fill').style.width = xpw; }
+    const owned = game.relics.list();
+    const key = owned.map((r) => r.id + r.count).join(',');
+    if (this.last.relics !== key) {
+      this.last.relics = key;
+      this.relicsEl.innerHTML = owned.map((r) => `<span class="rl" title="${tr(r.name)}">${relicIcon(r.icon, 15)}${r.count > 1 ? `<b>${r.count}</b>` : ''}</span>`).join('');
+    }
+    // two layers: red drops at once, the white trail (fx.hpTrail) follows after a moment
+    const p = game.player, ht = fx && fx.hpTrail, trail = ht ? ht.trail : p.hp, red = ht ? ht.red : p.hp;
+    const hpKey = `${p.hp.toFixed(1)}/${p.maxHp}/${trail.toFixed(1)}/${red.toFixed(1)}`;
+    if (hpKey !== this.lastHp) {
+      this.lastHp = hpKey;
+      if (!this.hpEl) this.hpEl = this.el.querySelector('.hp');
+      paintHpBar(this.hpEl, p.hp, p.maxHp, trail, red);
+      this.el.classList.toggle('low-hp', p.hp / p.maxHp <= 0.3);
+    }
+  }
+}

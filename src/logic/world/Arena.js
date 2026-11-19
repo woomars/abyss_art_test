@@ -1,0 +1,101 @@
+// Rectangular (or circular: cfg.circle) room with axis-aligned pillar obstacles.
+export class Arena {
+  constructor(cfg) {
+    this.cfg = cfg;
+  }
+  get width() { return this.cfg.width; }
+  get height() { return this.cfg.height; }
+  get pillars() { return this.cfg.pillars; }
+
+  // a rock that stands for a while (golem boulder): a pillar until its time runs out
+  addTemp(rect, time) {
+    (this.temps || (this.temps = [])).push({ rect, t: time });
+    this.cfg.pillars.push(rect);
+  }
+
+  update(dt) {
+    if (!this.temps) return;
+    for (let i = this.temps.length - 1; i >= 0; i--) {
+      const tp = this.temps[i];
+      tp.t -= dt;
+      if (tp.t <= 0) { this.dropTemp(tp); this.temps.splice(i, 1); }
+    }
+  }
+
+  // every rock goes (a new room)
+  clearTemps() {
+    for (const tp of this.temps || []) this.dropTemp(tp);
+    this.temps = [];
+  }
+
+  dropTemp(tp) { const k = this.cfg.pillars.indexOf(tp.rect); if (k >= 0) this.cfg.pillars.splice(k, 1); }
+
+  // does a pillar stand between a and b (the segment crosses a pillar rectangle)? Liang–Barsky clip.
+  blocks(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    for (const p of this.pillars) {
+      let t0 = 0, t1 = 1, ok = true;
+      for (const [q, d] of [[a.x - p.x, -dx], [p.x + p.w - a.x, dx], [a.y - p.y, -dy], [p.y + p.h - a.y, dy]]) {
+        if (Math.abs(d) < 1e-12) { if (q < 0) { ok = false; break; } continue; }
+        const r = q / d;
+        if (d < 0) { if (r > t1) { ok = false; break; } if (r > t0) t0 = r; }
+        else { if (r < t0) { ok = false; break; } if (r < t1) t1 = r; }
+      }
+      if (ok && t0 <= t1) return true;
+    }
+    return false;
+  }
+
+  // Push a circle out of walls and pillars. Returns resolved pos, whether it hit, and the last contact normal.
+  resolveCircle(pos, radius) {
+    let x = pos.x, y = pos.y;
+    let hitWall = false;
+    let nx = 0, ny = 0;
+    if (this.cfg.circle) { // round arena: keep inside the circle that fits the room
+      const cx = this.width / 2, cy = this.height / 2, R = Math.min(this.width, this.height) / 2;
+      const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy);
+      if (d > R - radius) {
+        const k = d > 1e-9 ? (R - radius) / d : 0;
+        x = cx + dx * k; y = cy + dy * k;
+        hitWall = true;
+        if (d > 1e-9) { nx -= dx / d; ny -= dy / d; }
+      }
+    } else {
+      if (x < radius) { x = radius; hitWall = true; nx += 1; }
+      if (x > this.width - radius) { x = this.width - radius; hitWall = true; nx -= 1; }
+      if (y < radius) { y = radius; hitWall = true; ny += 1; }
+      if (y > this.height - radius) { y = this.height - radius; hitWall = true; ny -= 1; }
+    }
+
+    const pillars = this.pillars;
+    for (let i = 0; i < pillars.length; i++) {
+      const p = pillars[i];
+      const cx = Math.max(p.x, Math.min(x, p.x + p.w));
+      const cy = Math.max(p.y, Math.min(y, p.y + p.h));
+      const dx = x - cx, dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= radius * radius - 1e-6) continue; // resting exactly against it is not a hit
+      hitWall = true;
+      if (d2 > 1e-12) {
+        const d = Math.sqrt(d2);
+        const ux = dx / d, uy = dy / d;
+        x = cx + ux * radius; y = cy + uy * radius;
+        nx += ux; ny += uy;
+      } else {
+        // center inside pillar: exit through nearest side
+        const left = x - p.x, right = p.x + p.w - x, top = y - p.y, bottom = p.y + p.h - y;
+        const m = Math.min(left, right, top, bottom);
+        if (m === left) { x = p.x - radius; nx -= 1; }
+        else if (m === right) { x = p.x + p.w + radius; nx += 1; }
+        else if (m === top) { y = p.y - radius; ny -= 1; }
+        else { y = p.y + p.h + radius; ny += 1; }
+      }
+    }
+    let normal = null;
+    if (hitWall) {
+      const l = Math.hypot(nx, ny);
+      normal = l > 1e-9 ? { x: nx / l, y: ny / l } : { x: 0, y: 0 };
+    }
+    return { pos: { x, y }, hitWall, normal };
+  }
+}

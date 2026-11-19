@@ -1,0 +1,151 @@
+// Enemy attacks that live in the world: arrows, and telegraphed areas (circle, cone, expanding ring).
+// Every area shows its shape first (delay) and only then checks the player once. Pure game logic.
+const TAU = Math.PI * 2;
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+export class Hazards {
+  constructor(arena, cfg = null) {
+    this.arena = arena;
+    this.cfg = cfg; // config.enemies (live): hazardFlash = how long a resolved area stays visible
+    this.list = [];
+    this.onHit = null; // (damage, hazard) => void, set by Game
+  }
+
+  clear() { this.list.length = 0; }
+
+  // style: 'arrow' (archers) or 'bolt' (boss magic and shots) — same flight, different look
+  // home: turn rate (rad/s) toward the player for the first homeTime seconds
+  arrow({ x, y, dir, speed, radius, damage, range, style = 'arrow', home = 0, homeTime = 0 }) {
+    this.list.push({ kind: 'arrow', x, y, dir: { x: dir.x, y: dir.y }, speed, radius, damage, range, traveled: 0, t: 0, style, home, homeTime });
+  }
+
+  // follow: the circle tracks the player until lockAt, then stays put for the rest of its warning
+  circle({ x, y, radius, delay, damage, follow = false, lockAt = 0, owner = null, anchor = false }) {
+    this.list.push({ kind: 'circle', x, y, radius, delay, damage, t: 0, done: false, follow, lockAt, tell: !(damage > 0), owner, anchor });
+  }
+
+  // a ring-shaped zone between r0 and r1 around (x, y) (sequential area attacks)
+  annulus({ x, y, r0, r1, delay, damage, owner = null, anchor = false }) {
+    this.list.push({ kind: 'annulus', x, y, r0, r1, radius: r1, delay, damage, t: 0, done: false, tell: !(damage > 0), owner, anchor });
+  }
+
+  // owner: the enemy whose own attack this is — the warning moves with it when anchor is set, and is gone
+  // when it dies or is stunned. Boss fields, bomber blasts and arrows have no owner: once out, they stay.
+  // a straight band from (x, y) along dir (charge paths, sniper lines); damage 0 = warning only
+  line({ x, y, dir, length, width, delay, damage = 0, owner = null, anchor = false }) {
+    this.list.push({ kind: 'line', x, y, dir, length, width, radius: length, delay, damage, t: 0, done: false, tell: !(damage > 0), owner, anchor });
+  }
+
+  cone({ x, y, dir, radius, arcDeg, delay, damage, owner = null, anchor = false }) {
+    this.list.push({ kind: 'cone', x, y, dir, radius, arcDeg, delay, damage, t: 0, done: false, tell: !(damage > 0), owner, anchor });
+  }
+
+  // shockwave: telegraph for `delay`, then a band of `thickness` grows from 0 to maxRadius at `speed`
+  // a patch of ground that stays (cracks, curses): after delay it hurts every tick while the player
+  // stands in it, for duration. Once laid it outlives its caster.
+  pool({ x, y, radius, delay = 0, duration, tick, damage, owner = null, style = 'crack' }) {
+    const h = { kind: 'pool', x, y, radius, delay, duration, tick, damage, t: 0, next: 0, owner, style };
+    this.list.push(h);
+    return h;
+  }
+
+  // a line that sweeps from its caster: angle (rad) is turned by the pattern each step; a warning for
+  // delay, then it hurts for duration (once per 0.5 s). Pillars shield; a dead or stunned caster drops it.
+  beam({ owner, angle, length, width, delay, duration, damage }) {
+    const h = { kind: 'beam', owner, x: owner.pos.x, y: owner.pos.y, angle, dir: { x: Math.cos(angle), y: Math.sin(angle) }, length, width, radius: length, delay, duration, damage, t: 0, cd: 0 };
+    this.list.push(h);
+    return h;
+  }
+
+  ring({ x, y, delay, speed, maxRadius, thickness, damage }) {
+    this.list.push({ kind: 'ring', x, y, delay, speed, maxRadius, thickness, damage, t: 0, r: 0, hit: false });
+  }
+
+  hit(h, player) {
+    if (this.onHit) this.onHit(h.damage, h, player);
+  }
+
+  update(dt, player) {
+    const pr = player.radius;
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const h = this.list[i];
+      h.t += dt;
+      let remove = false;
+      if (h.kind === 'arrow') {
+        if (h.home && h.t < h.homeTime) { // homing: bend toward the player a little each step
+          const want = Math.atan2(player.pos.y - h.y, player.pos.x - h.x), cur = Math.atan2(h.dir.y, h.dir.x);
+          const diff = wrapAngle(want - cur), turn = Math.max(-h.home * dt, Math.min(h.home * dt, diff));
+          h.dir = { x: Math.cos(cur + turn), y: Math.sin(cur + turn) };
+        }
+        const step = h.speed * dt;
+        h.x += h.dir.x * step;
+        h.y += h.dir.y * step;
+        h.traveled += step;
+        if (Math.hypot(player.pos.x - h.x, player.pos.y - h.y) <= pr + h.radius) { this.hit(h, player); remove = true; }
+        else if (h.traveled >= h.range || this.arena.resolveCircle({ x: h.x, y: h.y }, h.radius).hitWall) remove = true;
+      } else if (h.kind === 'circle' || h.kind === 'cone' || h.kind === 'line' || h.kind === 'annulus') {
+        const o = h.owner;
+        if (o && !h.done) {
+          if (!o.alive || o.dying || o.stunTime > 0) { this.list.splice(i, 1); continue; }
+          if (h.anchor) { h.x = o.pos.x; h.y = o.pos.y; }
+        }
+        if (h.follow && h.t < h.lockAt) { h.x = player.pos.x; h.y = player.pos.y; }
+        if (!h.done && h.t >= h.delay) {
+          h.done = true;
+          if (h.damage > 0 && this.inside(h, player.pos, pr) && !this.covered(h, player.pos)) this.hit(h, player);
+        }
+        if (h.done && h.t >= h.delay + ((this.cfg && this.cfg.hazardFlash) || 0.15)) remove = true;
+      } else if (h.kind === 'pool') {
+        const o = h.owner;
+        if (o && h.t < h.delay && (!o.alive || o.dying || o.stunTime > 0)) { this.list.splice(i, 1); continue; }
+        if (h.t >= h.delay) {
+          h.next -= dt;
+          if (h.next <= 0 && this.inside(h, player.pos, pr)) { h.next = h.tick; this.hit(h, player); }
+          if (h.t >= h.delay + h.duration) remove = true;
+        }
+      } else if (h.kind === 'beam') {
+        const o = h.owner;
+        if (!o.alive || o.dying || o.stunTime > 0) { this.list.splice(i, 1); continue; }
+        h.x = o.pos.x; h.y = o.pos.y;
+        h.dir = { x: Math.cos(h.angle), y: Math.sin(h.angle) };
+        if (h.cd > 0) h.cd -= dt;
+        if (h.t >= h.delay && h.cd <= 0 && this.inside(h, player.pos, pr) && !this.covered(h, player.pos)) { h.cd = 0.5; this.hit(h, player); }
+        if (h.t >= h.delay + h.duration) remove = true;
+      } else if (h.kind === 'ring') {
+        if (h.t >= h.delay) {
+          h.r = (h.t - h.delay) * h.speed;
+          const d = Math.hypot(player.pos.x - h.x, player.pos.y - h.y);
+          if (!h.hit && Math.abs(d - h.r) <= h.thickness / 2 + pr && !this.covered(h, player.pos)) { h.hit = true; this.hit(h, player); }
+          if (h.r - h.thickness / 2 > h.maxRadius) remove = true;
+        }
+      }
+      if (remove) this.list.splice(i, 1);
+    }
+  }
+
+  // attacks that spread out from their source (rings, bands, zone rings, cones, lanes) stop at pillars:
+  // a player whose centre is in a pillar's shadow is safe. Circles dropped onto a spot are not blocked.
+  covered(h, p) {
+    if (h.kind === 'circle' || h.kind === 'pool' || !this.arena || !this.arena.blocks) return false;
+    return this.arena.blocks({ x: h.x, y: h.y }, p);
+  }
+
+  // is a circle of radius pr at p inside the area (counting the player's size)
+  inside(h, p, pr) {
+    const dx = p.x - h.x, dy = p.y - h.y, d = Math.hypot(dx, dy);
+    if (h.kind === 'annulus') return d >= h.r0 - pr && d <= h.r1 + pr;
+    if (h.kind === 'line' || h.kind === 'beam') { // distance from the segment
+      const along = dx * h.dir.x + dy * h.dir.y;
+      if (along < -pr || along > h.length + pr) return false;
+      return Math.abs(dx * h.dir.y - dy * h.dir.x) <= h.width / 2 + pr;
+    }
+    if (d > h.radius + pr) return false;
+    if (h.kind === 'circle' || h.kind === 'pool') return true;
+    if (d <= pr) return true; // standing on the origin
+    const half = (h.arcDeg * Math.PI / 180) / 2;
+    const diff = Math.abs(wrapAngle(Math.atan2(dy, dx) - Math.atan2(h.dir.y, h.dir.x)));
+    return diff <= half + Math.asin(Math.min(1, pr / d));
+  }
+}
+
+export { TAU };
