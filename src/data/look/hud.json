@@ -18,7 +18,7 @@
     "_height": "막대 세로(px)",
     "height": 5,
     "_offsetY": "캐릭터 중심에서 위로 떨어진 거리(px)",
-    "offsetY": 34
+    "offsetY": 37
   },
 
   "playerHit": {

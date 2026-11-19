@@ -82,9 +82,9 @@ export function drawEnemyPx(rd, game, e, x, y, flash) {
   const f = face(Math.atan2(to.y, to.x));
   const anim = (name) => a.anims[`${name}_${f.d}`];
   const at = (l, k) => l[Math.max(0, Math.min(l.length - 1, Math.floor(k * l.length)))];
+  if (e.dying) return true; // dead: gone at once (the burst shows it), no fallen body left like a grave
   let n;
-  if (e.dying) n = at(anim('die'), 1 - Math.max(0, e.deathTimer / e.root.deathTime));
-  else if (e.stunTime > 0) n = loop(anim(m.stun), 6, t);
+  if (e.stunTime > 0) n = loop(anim(m.stun), 6, t);
   else if (e.strikeTime > 0) n = loop(anim(m.strike), 10, t);
   else if (e.windupTime > 0) n = at(anim(m.wind), 1 - e.windupTime / Math.max(1e-6, e.windupMax));
   else if (flash) n = anim('hurt')[0];
