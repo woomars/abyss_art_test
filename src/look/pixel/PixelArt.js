@@ -43,7 +43,8 @@ export class PixelArt {
   }
 }
 
-export const ready = (img) => !!img && img.complete && img.naturalWidth > 0;
+// a loaded image, or a canvas (tinted copies)
+export const ready = (img) => !!img && (img.complete === undefined ? img.width > 0 : img.complete && img.naturalWidth > 0);
 
 // eight ways: d0 = right, clockwise (screen y points down)
 export const dir8 = (ang) => ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;

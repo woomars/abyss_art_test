@@ -1,4 +1,5 @@
 import { telegraphStyle } from './telegraph.js';
+import { telegraphPx, hazardSheet, hazardPx } from '../pixel/drawPixel.js';
 
 // monotone-chain convex hull of [x, y] points
 function convexHull(pts) {
@@ -45,6 +46,7 @@ export function drawTelegraphs(rd, game, alpha) {
     const reach = e.radius + (e.tcfg.attackRange || 0) + 16 + (e.lunge || 0);
     const total = e.windupMax || e.tcfg.attackWindup || 0.2;
     const k = 1 - e.windupTime / total, st = telegraphStyle(k, total - e.windupTime, rd.config.look.render.telegraphFlash);
+    if (telegraphPx(rd, e, x, y, reach, k, st)) continue; // the mask sheet, when there is one of this width
     const d = e.windupDir, a0 = d ? Math.atan2(d.y, d.x) : 0, half = d ? (e.meleeArc * Math.PI) / 360 : Math.PI;
     const pie = (r) => { ctx.beginPath(); if (d) ctx.moveTo(x, y); ctx.arc(x, y, r, a0 - half, a0 + half); if (d) ctx.closePath(); }; // the swing's cone
     pie(reach * k);
@@ -60,7 +62,7 @@ export function drawTelegraphs(rd, game, alpha) {
   }
   const hz = game.hazards;
   for (const h of hz.list) {
-    if ((h.kind !== 'circle' && h.kind !== 'cone') || h.tell || h.done) continue;
+    if ((h.kind !== 'circle' && h.kind !== 'cone') || h.tell || h.done || (hazardSheet(h) && rd.px.get(hazardSheet(h)))) continue; // (a sheet draws its own edge)
     if (!rd.isVisible(h, h.radius + 20)) continue;
     const st = telegraphStyle(Math.min(1, h.t / h.delay), h.t, rd.config.look.render.telegraphFlash);
     ctx.save();
@@ -211,6 +213,7 @@ export function drawHazards(rd, hz) {
         ctx.restore();
         continue;
       }
+      if (hazardPx(rd, h, k, flash, telegraphStyle(k, h.t, rd.config.look.render.telegraphFlash))) { ctx.restore(); continue; }
       path();
       ctx.fillStyle = flash ? 'rgba(255,120,80,0.55)' : 'rgba(255,50,40,0.10)';
       ctx.fill();

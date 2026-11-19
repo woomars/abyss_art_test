@@ -153,3 +153,68 @@ export function drawNumberPx(rd, n, color, scale) {
   }
   return true;
 }
+
+// ---- attack warnings from the white mask sheets (fx-telegraph): painted at run time ----
+// R: the sector radius in drawing units (art.py TG; 1 unit = 1.5 world), arc: its width in degrees
+const TG = { tgSoldier: { R: 35, arc: 90 }, tgOrc: { R: 51, arc: 120 }, tgFirstS: { R: 51, arc: 50 }, tgFirstO: { R: 67, arc: 50 } };
+const FILL = '255,60,50', EDGE = '255,70,55', FLASH = '255,235,200', HIT = '255,120,80';
+
+// a white mask sheet painted one colour (kept as a canvas)
+function tinted(rd, key, rgb) {
+  const s = rd.px.get(key);
+  if (!s || typeof document === 'undefined') return null;
+  const box = rd.px.tints || (rd.px.tints = {}), id = `${key}|${rgb}`;
+  if (!box[id]) {
+    const cv = document.createElement('canvas');
+    cv.width = s.img.naturalWidth; cv.height = s.img.naturalHeight;
+    const g = cv.getContext('2d');
+    g.drawImage(s.img, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = `rgb(${rgb})`;
+    g.fillRect(0, 0, cv.width, cv.height);
+    box[id] = cv;
+  }
+  return { a: s.a, img: box[id] };
+}
+
+// one sector warning: fill grown to k (0..1) under a bright edge; hit: the flash once it lands.
+// The nearest of the 8 drawn ways, turned the last bit so the shown cone is the cone that hits.
+function sector(rd, key, x, y, ang, reach, k, st, whole = 0, hit = false) {
+  const t = TG[key], f = tinted(rd, key, hit ? HIT : FILL);
+  if (!f) return false;
+  const ctx = rd.ctx, ga = ctx.globalAlpha, d = dir8(ang), l = f.a.anims[`d${d}`], k1 = reach / (t.R * FINE_U);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(ang - (d * Math.PI) / 4);
+  ctx.globalAlpha = ga * (hit ? 0.55 : st.fillAlpha);
+  rd.px.frame(ctx, f.a, f.img, l[hit ? 8 : Math.max(1, Math.min(8, Math.ceil(k * 8)))], 0, 0, false, k1);
+  if (whole > 0) { ctx.globalAlpha = ga * whole; rd.px.frame(ctx, f.a, f.img, l[8], 0, 0, false, k1); }
+  if (!hit) {
+    const e = tinted(rd, key, st.flash ? FLASH : EDGE);
+    ctx.globalAlpha = ga * st.strokeAlpha;
+    rd.px.frame(ctx, e.a, e.img, l[0], 0, 0, false, k1);
+  }
+  ctx.restore();
+  return true;
+}
+const FINE_U = 1.5; // world units per drawing unit
+
+// a skeleton's or orc's swing being wound up (false: no sheet of that width, draw the shape)
+export function telegraphPx(rd, e, x, y, reach, k, st) {
+  const key = e.type === 'elite' ? 'tgOrc' : e.type === 'soldier' ? 'tgSoldier' : null;
+  if (!key || !e.windupDir || TG[key].arc !== e.meleeArc) return false;
+  return sector(rd, key, x, y, Math.atan2(e.windupDir.y, e.windupDir.x), reach, k, st, e.isElite ? 0.08 + 0.12 * k : 0);
+}
+
+// a first strike (a cone hazard of a skeleton or orc), or null
+export function hazardSheet(h) {
+  if (h.kind !== 'cone' || h.tell || !h.owner) return null;
+  const key = h.owner.type === 'elite' ? 'tgFirstO' : h.owner.type === 'soldier' ? 'tgFirstS' : null;
+  return key && TG[key].arc === h.arcDeg ? key : null;
+}
+
+// its fill, edge and landing flash (the canvas is already moved to the hazard)
+export function hazardPx(rd, h, k, flash, st) {
+  const key = hazardSheet(h);
+  return !!key && sector(rd, key, 0, 0, Math.atan2(h.dir.y, h.dir.x), h.radius, k, st, 0, flash);
+}
