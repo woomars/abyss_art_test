@@ -12,9 +12,10 @@ import { drawHeroPx, drawFxSprites } from '../pixel/drawPixel.js';
 const lerpPos = (prev, pos, a) => ({ x: prev.x + (pos.x - prev.x) * a, y: prev.y + (pos.y - prev.y) * a });
 
 export class Renderer {
-  constructor(canvas, config) {
+  // alpha: a see-through canvas (the pixel renderer draws its screen overlay on it)
+  constructor(canvas, config, { alpha = false } = {}) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.ctx = canvas.getContext('2d', { alpha });
     this.config = config;
     this.cssW = 1; this.cssH = 1; this.dpr = 1;
     this.cam = { x: 0, y: 0 };
@@ -76,8 +77,13 @@ export class Renderer {
     ctx.fillText(`build ${BUILD}`, 6, this.cssH - 4);
   }
 
-  // hook points extended by later tasks
+  // the world in two halves: the pixel renderer puts its character sprites between them
   drawWorld(game, alpha) {
+    this.drawWorldBelow(game, alpha);
+    this.drawWorldAbove(game, alpha);
+  }
+
+  drawWorldBelow(game, alpha) {
     const fx = this.fx.effects;
     if (game.mode === 'dungeon') { drawRoomObjects(this, game.dungeon); drawLoot(this, game); }
     drawHazards(this, game.hazards);
@@ -91,6 +97,10 @@ export class Renderer {
     drawRoll(this, game, alpha);
     const lift = jumpLift(this, game.skills);
     if (!drawHeroPx(this, game, alpha, lift)) drawPlayer(this, game.player, alpha, lift);
+  }
+
+  drawWorldAbove(game, alpha) {
+    const fx = this.fx.effects;
     drawHurtFlash(this, game, alpha);
     drawOverheadHp(this, game, alpha);
     drawSpin(this, game.skills, game.player, alpha);

@@ -3,7 +3,7 @@ import { Game } from '../logic/run/Game.js';
 import { GameLoop } from '../logic/run/GameLoop.js';
 import { Events } from '../core/Events.js';
 import { createRng } from '../core/rng.js';
-import { Renderer } from '../look/render/Renderer.js';
+import { createRenderer } from '../look/pixel/createRenderer.js';
 import { Fx } from '../look/fx/Fx.js';
 import { bindInput } from '../platform/InputBinder.js';
 import { AudioSystem } from '../platform/AudioSystem.js';
@@ -60,7 +60,7 @@ async function boot() {
   const rng = createRng((Date.now() & 0xffffffff) >>> 0);
   const canvas = document.getElementById('game');
   const ui = document.getElementById('ui');
-  const renderer = new Renderer(canvas, config);
+  const renderer = await createRenderer(canvas, config); // Pixi pixel screen; the Canvas one if Pixi cannot start (?render=canvas forces it)
   const game = new Game(config, { events, rng });
   // the screen's own random numbers (particles, shake): drawing never moves the game's sequence
   const fx = new Fx(config, events, createRng(((Date.now() ^ 0x5bd1e995) & 0xffffffff) >>> 0), game);

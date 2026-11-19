@@ -3,7 +3,7 @@
 import { WORLD, ready, dir8, face, loop } from './PixelArt.js';
 
 // enemy type -> its sheet and animation names (types not here keep their Canvas shapes)
-const ENEMY = {
+export const ENEMY = {
   soldier: { key: 'skel', shadow: 'shadow', slash: 'slashS', wind: 'wind', strike: 'strike', stun: 'hurt' },
   elite: { key: 'orc', shadow: 'shadowBig', slash: 'slashE', wind: 'windCleave', strike: 'strikeCleave', stun: 'stagger' },
 };
